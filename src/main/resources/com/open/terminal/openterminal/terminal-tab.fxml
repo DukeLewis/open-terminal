@@ -1,47 +1,130 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<?import javafx.geometry.Insets?>
+<?import javafx.geometry.*?>
 <?import javafx.scene.control.*?>
 <?import javafx.scene.layout.*?>
-<?import javafx.scene.text.Font?>
+<?import javafx.scene.text.*?>
 
-<BorderPane xmlns="http://javafx.com/javafx"
-            xmlns:fx="http://javafx.com/fxml"
-            fx:controller="com.open.terminal.openterminal.TerminalController"
-            style="-fx-background-color: #1e1e1e;">
+<!-- 根节点改为 SplitPane，用于左右分割 (左侧信息栏 | 右侧终端与文件) -->
 
-    <center>
-        <TextArea fx:id="terminalOutput"
-                  editable="false"
-                  wrapText="true"
-                  style="-fx-control-inner-background: #1e1e1e; -fx-text-fill: #00ff00; -fx-font-family: Courier New;">
+<SplitPane dividerPositions="0.2" style="-fx-background-color: #1e1e1e; -fx-padding: 0;" xmlns="http://javafx.com/javafx/17.0.12" xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.open.terminal.openterminal.TerminalController">
+
+    <!-- ================= 左侧：连接信息侧栏 ================= -->
+    <VBox spacing="10" style="-fx-background-color: #252526;">
+        <padding>
+            <Insets bottom="10" left="10" right="10" top="15" />
+        </padding>
+
+        <Label text="连接详情" textFill="#a9b7c6">
             <font>
-                <Font name="Courier New" size="14"/>
+                <Font name="System Bold" size="14" />
             </font>
-        </TextArea>
-    </center>
+        </Label>
 
-    <bottom>
-        <HBox spacing="5" alignment="CENTER_LEFT" style="-fx-background-color: #2b2b2b;">
-            <padding>
-                <Insets top="5" right="5" bottom="5" left="5"/>
-            </padding>
+        <!-- 具体信息展示 -->
+        <VBox spacing="8">
+            <VBox spacing="2">
+                <Label style="-fx-font-size: 10px;" text="主机 Host:" textFill="gray" />
+                <Label fx:id="hostLabel" text="192.168.x.x" textFill="#e8e8e8" />
+            </VBox>
 
-            <Label text="&gt;" textFill="lightgreen">
-                <font>
-                    <Font name="Courier New" size="14"/>
-                </font>
-            </Label>
+            <VBox spacing="2">
+                <Label style="-fx-font-size: 10px;" text="端口 Port:" textFill="gray" />
+                <Label fx:id="portLabel" text="22" textFill="#e8e8e8" />
+            </VBox>
 
-            <TextField fx:id="commandInput" promptText="输入命令..." style="-fx-background-color: #3c3f41; -fx-text-fill: white; -fx-prompt-text-fill: gray; -fx-font-family: Courier New;">
-                <font>
-                    <Font name="Courier New" size="14"/>
-                </font>
-                <HBox.hgrow>
-                    <Priority fx:constant="ALWAYS"/>
-                </HBox.hgrow>
-            </TextField>
-        </HBox>
-    </bottom>
+            <VBox spacing="2">
+                <Label style="-fx-font-size: 10px;" text="用户 User:" textFill="gray" />
+                <Label fx:id="userLabel" text="root" textFill="#e8e8e8" />
+            </VBox>
 
-</BorderPane>
+            <Region prefHeight="10" />
+
+            <VBox spacing="2">
+                <Label style="-fx-font-size: 10px;" text="状态 Status:" textFill="gray" />
+                <Label fx:id="statusLabel" style="-fx-font-weight: bold;" text="已连接" textFill="#4caf50" />
+            </VBox>
+        </VBox>
+    </VBox>
+
+    <!-- ================= 右侧区域：包含终端和文件管理 ================= -->
+    <!-- 垂直 SplitPane：上方终端，下方文件 -->
+    <SplitPane dividerPositions="0.65" orientation="VERTICAL" style="-fx-background-color: #1e1e1e; -fx-padding: 0;">
+
+        <!-- === 1. 上半部分：终端交互区  === -->
+        <BorderPane style="-fx-background-color: #1e1e1e;">
+            <center>
+                <TextArea fx:id="terminalOutput" editable="false" style="-fx-control-inner-background: #1e1e1e; -fx-text-fill: #00ff00; -fx-font-family: Courier New; -fx-background-insets: 0;" wrapText="true">
+                    <font>
+                        <Font name="Courier New" size="14" />
+                    </font>
+                </TextArea>
+            </center>
+
+            <bottom>
+                <HBox alignment="CENTER_LEFT" spacing="5" style="-fx-background-color: #2b2b2b;">
+                    <padding>
+                        <Insets bottom="5" left="5" right="5" top="5" />
+                    </padding>
+
+                    <Label text="&gt;" textFill="lightgreen">
+                        <font>
+                            <Font name="Courier New" size="14" />
+                        </font>
+                    </Label>
+
+                    <TextField fx:id="commandInput" promptText="输入命令..." style="-fx-background-color: #3c3f41; -fx-text-fill: white; -fx-prompt-text-fill: gray; -fx-font-family: Courier New;">
+                        <font>
+                            <Font name="Courier New" size="14" />
+                        </font>
+                        <HBox.hgrow>
+                            <Priority fx:constant="ALWAYS" />
+                        </HBox.hgrow>
+                    </TextField>
+                </HBox>
+            </bottom>
+        </BorderPane>
+
+        <!-- === 2. 下半部分：文件目录 (TitledPane 实现可收起) === -->
+        <TitledPane fx:id="filePanel" style="-fx-text-fill: #a9b7c6;" text="文件系统 (File System)">
+
+            <content>
+                <BorderPane style="-fx-background-color: #2b2b2b;">
+                    <!-- 文件工具栏 -->
+                    <top>
+                        <HBox alignment="CENTER_LEFT" spacing="10" style="-fx-background-color: #323232; -fx-padding: 5;">
+                            <Label text="路径:" textFill="gray" />
+                            <Label fx:id="currentPathLabel" style="-fx-font-weight: bold;" text="/home/" textFill="#e8e8e8" />
+
+                            <Region HBox.hgrow="ALWAYS" />
+
+                            <Button onAction="#handleFileList" text="文件列表" style="fx-text-fill: white; -fx-font-size: 11px; -fx-cursor: hand;"/>
+                            <Button onAction="#handleUploadFile" style="-fx-background-color: #4a90e2; -fx-text-fill: white; -fx-font-size: 11px; -fx-cursor: hand;" text="⬆ 上传文件" />
+                            <Button onAction="#handleRefreshFiles" style="-fx-background-color: #444; -fx-text-fill: white; -fx-font-size: 11px; -fx-cursor: hand;" text="⟳ 刷新" />
+                        </HBox>
+                    </top>
+
+                    <!-- 文件列表 -->
+                    <center>
+                        <TableView fx:id="fileTableView" style="-fx-background-color: #2b2b2b; -fx-control-inner-background: #2b2b2b;">
+                            <placeholder>
+                                <Label text="正在加载目录..." textFill="gray" />
+                            </placeholder>
+                            <columns>
+                                <TableColumn prefWidth="200" style="-fx-alignment: CENTER-LEFT;" text="名称" />
+                                <TableColumn prefWidth="80" style="-fx-alignment: CENTER-RIGHT;" text="大小" />
+                                <TableColumn prefWidth="100" style="-fx-alignment: CENTER;" text="权限" />
+                                <TableColumn prefWidth="150" style="-fx-alignment: CENTER;" text="修改时间" />
+                            </columns>
+                            <columnResizePolicy>
+                                <TableView fx:constant="CONSTRAINED_RESIZE_POLICY" />
+                            </columnResizePolicy>
+                        </TableView>
+                    </center>
+                </BorderPane>
+            </content>
+        </TitledPane>
+
+    </SplitPane>
+
+</SplitPane>
