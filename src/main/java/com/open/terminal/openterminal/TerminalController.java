@@ -16,15 +16,17 @@ import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
 import javafx.scene.control.cell.PropertyValueFactory;
 import javafx.scene.layout.BorderPane;
+import javafx.stage.DirectoryChooser;
 import javafx.stage.FileChooser;
 import javafx.stage.Modality;
 import javafx.stage.Stage;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.awt.*;
 import java.io.*;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.nio.file.*;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.text.CharacterIterator;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -152,13 +154,14 @@ public class TerminalController {
 
         // 1. 创建任务并加入列表 (必须在 UI 线程添加，或者用 Platform.runLater)
         DownloadFileListController.DownloadTask task = new DownloadFileListController.DownloadTask(fileName, totalSize, false);
-        Platform.runLater(() -> downloadList.add(0, task)); // 加到最前面
+        Platform.runLater(() -> downloadList.addFirst(task)); // 加到最前面
 
         // 2. 创建 JSch 进度监听器
         SftpProgressMonitor monitor = new SftpProgressMonitor() {
             @Override
             public void init(int op, String src, String dest, long max) {
                 // 开始下载
+                log.info("开始下载文件: {}", fileName);
             }
 
             @Override
@@ -171,6 +174,7 @@ public class TerminalController {
             @Override
             public void end() {
                 // 结束
+                log.info("文件下载完成: {}", fileName);
             }
         };
 
@@ -226,7 +230,7 @@ public class TerminalController {
     }
 
     /**
-     * 上传文件逻辑
+     * 上传文件逻辑,包括单个文件和目录递归上传，上传到远程机器的当前目录
      */
     @FXML
     public void handleUploadFile() {
@@ -235,30 +239,126 @@ public class TerminalController {
             return;
         }
 
-        // 打开文件选择器
-        FileChooser fileChooser = new FileChooser();
-        fileChooser.setTitle("选择要上传的文件");
         Stage stage = (Stage) terminalOutput.getScene().getWindow();
-        File selectedFile = fileChooser.showOpenDialog(stage);
 
+        // 1. 创建一个确认对话框，让用户选择上传类型
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.setTitle("选择上传类型");
+        alert.setHeaderText("请选择上传内容");
+        alert.setContentText("您想要上传单个文件还是整个文件夹？");
+
+        ButtonType btnFile = new ButtonType("📄 上传文件");
+        ButtonType btnDir = new ButtonType("📁 上传文件夹");
+        ButtonType btnCancel = new ButtonType("取消", ButtonBar.ButtonData.CANCEL_CLOSE);
+
+        alert.getButtonTypes().setAll(btnFile, btnDir, btnCancel);
+
+        // 2. 获取用户选择
+        java.util.Optional<ButtonType> result = alert.showAndWait();
+
+        File selectedFile = null;
+
+        if (result.isPresent()) {
+            if (result.get() == btnFile) {
+                // === 选项 A: 文件选择器 ===
+                FileChooser fileChooser = new FileChooser();
+                fileChooser.setTitle("选择要上传的文件");
+                selectedFile = fileChooser.showOpenDialog(stage);
+            } else if (result.get() == btnDir) {
+                // === 选项 B: 目录选择器 ===
+                DirectoryChooser directoryChooser = new DirectoryChooser();
+                directoryChooser.setTitle("选择要上传的文件夹");
+                selectedFile = directoryChooser.showDialog(stage);
+            }
+        }
+
+        // 3. 如果用户没有取消，且选择了文件/目录，则执行之前的上传逻辑
         if (selectedFile != null) {
+            final File finalFile = selectedFile;
+
             ThreadUtil.submitTask(() -> {
                 try {
-                    Platform.runLater(() -> appendOutput("开始上传: " + selectedFile.getName() + "...\n"));
+                    Platform.runLater(() -> appendOutput("开始上传: " + finalFile.getName() + "...\n"));
 
-                    // 执行上传
-                    sftpChannel.put(new FileInputStream(selectedFile), selectedFile.getName());
+                    // 1. 单个文件上传
+                    if (finalFile.isFile()) {
+                        try (FileInputStream fis = new FileInputStream(finalFile)) {
+                            sftpChannel.put(fis, finalFile.getName());
+                        }
+                    }
+                    // 2. 目录递归上传
+                    else {
+                        Path rootPath = finalFile.toPath();
+                        String remoteBaseDir = finalFile.getName();
 
+                        safeSftpMkdir(remoteBaseDir); // 确保远程根目录存在
+
+                        java.nio.file.Files.walkFileTree(rootPath, new java.nio.file.SimpleFileVisitor<Path>() {
+                            @NotNull
+                            @Override
+                            public FileVisitResult preVisitDirectory(@NotNull Path dir, @NotNull BasicFileAttributes attrs) throws IOException {
+                                Path relative = rootPath.relativize(dir);
+                                if (relative.toString().isEmpty()) return java.nio.file.FileVisitResult.CONTINUE;
+
+                                String remotePath = remoteBaseDir + "/" + relative.toString().replace("\\", "/");
+                                try {
+                                    safeSftpMkdir(remotePath);
+                                } catch (SftpException e) {
+                                    throw new IOException("无法创建远程目录: " + remotePath, e);
+                                }
+                                return java.nio.file.FileVisitResult.CONTINUE;
+                            }
+
+                            @NotNull
+                            @Override
+                            public FileVisitResult visitFile(@NotNull Path file, @NotNull BasicFileAttributes attrs) throws IOException {
+                                Path relative = rootPath.relativize(file);
+                                String remoteFilePath = remoteBaseDir + "/" + relative.toString().replace("\\", "/");
+
+                                try (FileInputStream fis = new FileInputStream(file.toFile())) {
+                                    sftpChannel.put(fis, remoteFilePath);
+                                    Platform.runLater(() -> appendOutput("已上传: " + remoteFilePath + "\n"));
+                                } catch (SftpException e) {
+                                    throw new IOException("上传文件失败: " + file, e);
+                                }
+                                return java.nio.file.FileVisitResult.CONTINUE;
+                            }
+                        });
+                    }
                     Platform.runLater(() -> {
-                        appendOutput("上传成功: " + selectedFile.getName() + "\n");
-                        // 上传完成后刷新列表
+                        appendOutput("上传成功: " + finalFile.getName() + "\n");
                         handleRefreshFiles();
                     });
+
                 } catch (Exception e) {
-                    log.error("上传文件失败: {}", e.getMessage());
+                    log.error("上传失败", e);
                     Platform.runLater(() -> appendOutput("上传失败: " + e.getMessage() + "\n"));
                 }
             });
+        }
+    }
+
+    /**
+     * 安全创建远程目录，如果目录已存在则忽略错误
+     */
+    private void safeSftpMkdir(String dirPath) throws SftpException {
+        try {
+            sftpChannel.mkdir(dirPath);
+        } catch (SftpException e) {
+            // JSch 的 SSH_FX_FAILURE (id=4) 通常表示目录已存在或其他一般性错误
+            // 为了稳健，如果创建失败，我们可以尝试 cd 进去，如果能 cd 进去说明目录存在，否则才是真的创建失败
+            if (e.id != ChannelSftp.SSH_FX_FAILURE) {
+                throw e; // 抛出其他严重错误
+            }
+
+            // 二次确认：尝试获取该路径属性，用来判断是否真的存在
+            try {
+                sftpChannel.stat(dirPath);
+                // 如果没抛异常，说明目录确实存在，忽略之前的 mkdir 错误
+            } catch (SftpException checkEx) {
+                // 如果 stat 也失败了，说明 mkdir 是因为其他原因失败的，必须抛出原异常
+                throw e;
+            }
         }
     }
 

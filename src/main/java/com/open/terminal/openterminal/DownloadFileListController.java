@@ -1,6 +1,8 @@
 package com.open.terminal.openterminal;
 
 import com.open.terminal.openterminal.util.FileUtil;
+import com.open.terminal.openterminal.util.ThreadUtil;
+import javafx.application.Platform;
 import javafx.beans.property.DoubleProperty;
 import javafx.beans.property.SimpleDoubleProperty;
 import javafx.beans.property.SimpleStringProperty;
@@ -87,7 +89,7 @@ public class DownloadFileListController {
                     try {
                         FileUtil.openWithSystemChooser(localFile.toFile());
                     } catch (IOException ex) {
-                        log.error("无法打开文件: " + localFile, ex);
+                        log.error("无法打开文件: {}", localFile, ex);
                     }
                 });
             }
@@ -101,29 +103,72 @@ public class DownloadFileListController {
     }
 
     @FXML
-    public void handleClearCompleted() throws IOException {
-        // 清空文件列表逻辑
-        log.info("清空已完成的下载任务");
-        downloadTable.setItems(FXCollections.observableArrayList());
-        Path dir = FileUtil.localDownloadDir;
-        if (Files.notExists(dir) || !Files.isDirectory(dir)) {
-            return;
-        }
+    public void handleClearCompleted() {
+        // 1. 弹出警告框
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.setTitle("清空缓存确认");
+        alert.setHeaderText("危险操作");
+        alert.setContentText("这将永久删除所有已下载的文件！确定要继续吗？");
 
-        Files.walkFileTree(dir, new SimpleFileVisitor<>() {
+        alert.showAndWait().ifPresent(response -> {
+            if (response == ButtonType.OK) {
+                Path rootDir = FileUtil.localDownloadDir;
+                // 如果目录不存在，直接返回
+                if (Files.notExists(rootDir) || !Files.isDirectory(rootDir)) {
+                    return;
+                }
+                // 2. 清空 UI (只清空非进行中的)
+                downloadTable.getItems().removeIf(task -> !TaskStatus.IN_PROGRESS.equals(task.statusProperty().get()));
 
-            @NotNull
-            @Override
-            public FileVisitResult visitFile(@NotNull Path file, @NotNull BasicFileAttributes attrs) throws IOException {
-                Files.delete(file);
-                return FileVisitResult.CONTINUE;
-            }
+                // 3. 后台线程执行物理删除
+                ThreadUtil.submitTask(() -> {
+                    try {
+                        Files.walkFileTree(rootDir, new SimpleFileVisitor<>() {
 
-            @NotNull
-            @Override
-            public FileVisitResult postVisitDirectory(@NotNull Path dir, @Nullable IOException exc) throws IOException {
-                Files.delete(dir);
-                return FileVisitResult.CONTINUE;
+                            // 1. 处理文件
+                            @NotNull
+                            @Override
+                            public FileVisitResult visitFile(@NotNull Path file, @NotNull BasicFileAttributes attrs) throws IOException {
+                                try {
+                                    Files.delete(file);
+                                    log.info("已删除文件: {}", file);
+                                } catch (IOException e) {
+                                    // 捕获异常，比如文件正在被占用，打印日志但不中断流程
+                                    log.warn("无法删除文件 (可能正在被占用): {}, 错误: {}", file, e.getMessage());
+                                }
+                                return FileVisitResult.CONTINUE;
+                            }
+
+
+                            // 2. 处理目录 (后序遍历，确保目录为空后再删)
+                            @NotNull
+                            @Override
+                            public FileVisitResult postVisitDirectory(@NotNull Path dir, @Nullable IOException exc) throws IOException {
+                                // 如果遍历过程有异常，先抛出
+                                if (exc != null) {
+                                    log.error("遍历目录出错: {}", dir, exc);
+                                    return FileVisitResult.CONTINUE;
+                                }
+
+                                // 【关键优化】如果是根目录，则不删除
+                                if (dir.equals(rootDir)) {
+                                    return FileVisitResult.CONTINUE;
+                                }
+
+                                try {
+                                    Files.delete(dir); // 删除子目录
+                                    log.info("已删除目录: {}", dir);
+                                } catch (IOException e) {
+                                    // 目录非空（可能有文件没删掉）或被占用
+                                    log.warn("无法删除目录: {}", dir);
+                                }
+                                return FileVisitResult.CONTINUE;
+                            }
+                        });
+                    } catch (IOException e) {
+                        log.error("清理下载目录失败", e);
+                    }
+                });
             }
         });
     }
@@ -132,7 +177,7 @@ public class DownloadFileListController {
         private final StringProperty fileName = new SimpleStringProperty();
         private final StringProperty sizeStr = new SimpleStringProperty();
         private final DoubleProperty progress = new SimpleDoubleProperty(0.0);
-        private final StringProperty status = new SimpleStringProperty("等待中");
+        private final StringProperty status = new SimpleStringProperty(TaskStatus.PENDING);
 
         // 原始数据
         private final long totalSize;
@@ -157,9 +202,9 @@ public class DownloadFileListController {
             javafx.application.Platform.runLater(() -> {
                 this.progress.set(Math.min(p, 1.0));
                 if (p >= 1.0) {
-                    this.status.set("已完成");
+                    this.status.set(TaskStatus.COMPLETED);
                 } else {
-                    this.status.set("下载中...");
+                    this.status.set(TaskStatus.IN_PROGRESS);
                 }
             });
         }
@@ -185,6 +230,13 @@ public class DownloadFileListController {
             value *= Long.signum(bytes);
             return String.format("%.1f %ciB", value / 1024.0, ci.current());
         }
+    }
+
+    public static class TaskStatus {
+        public static final String PENDING = "等待中";
+        public static final String IN_PROGRESS = "下载中...";
+        public static final String COMPLETED = "已完成";
+        public static final String FAILED = "下载失败";
     }
 
 
