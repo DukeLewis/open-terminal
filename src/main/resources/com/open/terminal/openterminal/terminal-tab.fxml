@@ -42,7 +42,7 @@
 
             <VBox spacing="2">
                 <Label style="-fx-font-size: 10px;" text="状态 Status:" textFill="gray" />
-                <Label fx:id="statusLabel" style="-fx-font+-weight: bold;" text="已连接" textFill="#4caf50" />
+                <Label fx:id="statusLabel" style="-fx-font-weight: bold;" text="已连接" textFill="#4caf50" />
             </VBox>
         </VBox>
     </VBox>

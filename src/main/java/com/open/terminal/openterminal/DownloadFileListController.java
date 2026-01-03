@@ -20,6 +20,8 @@ import java.nio.file.Path;
  * @Copyright： https://github.com/DukeLewis
  */
 public class DownloadFileListController {
+    private static final org.slf4j.Logger log =
+            org.slf4j.LoggerFactory.getLogger(DownloadFileListController.class);
     @FXML
     private TableView<DownloadTask> downloadTable;
 
@@ -76,7 +78,7 @@ public class DownloadFileListController {
                     try {
                         FileUtil.openWithSystemChooser(localFile.toFile());
                     } catch (IOException ex) {
-                        ex.printStackTrace();
+                        log.error("无法打开文件: " + localFile, ex);
                     }
                 });
             }

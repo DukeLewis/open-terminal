@@ -12,6 +12,8 @@ import javafx.stage.Stage;
  * @Copyright： https://github.com/DukeLewis
  */
 public class ConnectionDialogController {
+    private static final org.slf4j.Logger log =
+            org.slf4j.LoggerFactory.getLogger(ConnectionDialogController.class);
 
     @FXML private TextField nameField;
     @FXML private TextField hostField;
