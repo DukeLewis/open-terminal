@@ -1,4 +1,4 @@
-package com.open.terminal.openterminal.starter;
+package com.open.terminal.openterminal;
 
 /**
  * @description: 程序启动类，一定要通过该主启动类去启动继承Application的主类，否则运行package之后打包出的

@@ -12,7 +12,7 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <junit.version>5.12.1</junit.version>
-        <main.class>com.open.terminal.openterminal.starter.Launcher</main.class>
+        <main.class>com.open.terminal.openterminal.Launcher</main.class>
     </properties>
 
     <dependencies>
@@ -259,7 +259,7 @@
                     <appVersion>1.0.0</appVersion>
                     <vendor>Your Company</vendor>
                     <destination>target/dist</destination>
-                    <module>com.open.terminal.openterminal/com.open.terminal.openterminal.starter.OpenTerminalStarter</module>
+                    <module>com.open.terminal.openterminal/com.open.terminal.openterminal.OpenTerminalStarter</module>
                     <runtimeImage>target/runtime</runtimeImage>
                     <javaOptions>
                         <option>-Dfile.encoding=UTF-8</option>
