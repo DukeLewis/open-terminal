@@ -1,6 +1,4 @@
-package com.open.terminal.openterminal;
-
-import javafx.application.Application;
+package com.open.terminal.openterminal.starter;
 
 /**
  * @description: 程序启动类，一定要通过该主启动类去启动继承Application的主类，否则运行package之后打包出的

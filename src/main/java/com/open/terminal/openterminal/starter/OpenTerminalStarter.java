@@ -1,4 +1,4 @@
-package com.open.terminal.openterminal;
+package com.open.terminal.openterminal.starter;
 
 import com.open.terminal.openterminal.util.ThreadUtil;
 import javafx.application.Application;

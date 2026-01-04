@@ -1,17 +1,11 @@
-package com.open.terminal.openterminal.component;
+package com.open.terminal.openterminal.component.terminal;
 
 import com.jediterm.terminal.TerminalColor;
 import com.jediterm.terminal.TextStyle;
-import com.jediterm.terminal.model.TerminalTypeAheadSettings;
-import com.jediterm.terminal.ui.TerminalActionPresentation;
 import com.jediterm.terminal.ui.settings.DefaultSettingsProvider;
 import org.jetbrains.annotations.NotNull;
 
-import javax.swing.*;
 import java.awt.*;
-import java.awt.event.InputEvent;
-import java.awt.event.KeyEvent;
-import java.util.concurrent.TimeUnit;
 
 public class DefaultTerminalSettings extends DefaultSettingsProvider {
     @Override

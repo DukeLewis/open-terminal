@@ -13,6 +13,7 @@ import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.StackPane;
 import javafx.stage.Modality;
 import javafx.stage.Stage;
+import org.apache.commons.lang.StringUtils;
 
 import java.io.IOException;
 import java.util.Map;
@@ -82,24 +83,6 @@ public class MainController {
         }
     }
 
-
-    /**
-     * 动态加载 connection-manager.fxml
-     */
-    private void loadConnectionManagerView() {
-        try {
-            FXMLLoader loader = new FXMLLoader(getClass().getResource("connection-manager.fxml"));
-            BorderPane view = loader.load();
-
-            // 获取子 Controller 并设置引用
-            connectionManagerController = loader.getController();
-            connectionManagerController.setMainController(this);
-
-        } catch (IOException e) {
-            log.error("无法加载连接管理页面: {}", e.getMessage());
-        }
-    }
-
     /**
      * 通用方法：将 Tab 插入到 + 号前面并选中
      */
@@ -114,17 +97,22 @@ public class MainController {
     }
 
     // 处理新建连接（来自弹窗的确定按钮回调）
-    public void connect(String name, String host, int port, String user, String password) {
+    public void connect(SavedConnection savedConnection) {
         // 1. 尝试保存逻辑
-        checkAndSaveConnection(name, host, port, user, password);
+        checkAndSaveConnection(savedConnection);
 
         // 2. 创建 Tab 并连接
-        createTab(name, host, port, user, password);
+        createTab(savedConnection);
     }
 
     // 公开给管理页调用，不弹保存提示（因为是已保存的）
-    public void createTab(String name, String host, int port, String user, String password) {
+    public void createTab(SavedConnection savedConnection) {
         try {
+            String name = savedConnection.getName();
+            String host = savedConnection.getHost();
+            int port = savedConnection.getPort();
+            String user = savedConnection.getUser();
+            String password = savedConnection.getPassword();
             FXMLLoader loader = new FXMLLoader(getClass().getResource("terminal-tab.fxml"));
             Node terminalContent = loader.load();
             TerminalController terminalController = loader.getController();
@@ -147,7 +135,6 @@ public class MainController {
                 log.info("连接管理器 Tab 已关闭");
             }
 
-
             // 当tab关闭时断开连接
             newTerminalTab.setOnClosed(e -> terminalController.disconnect());
 
@@ -160,12 +147,24 @@ public class MainController {
     /**
      * 【核心需求】询问是否保存凭证
      */
-    private void checkAndSaveConnection(String name, String host, int port, String user, String password) {
+    private void checkAndSaveConnection(SavedConnection savedConnection) {
+        // 如果已经有 ID 了，说明是已保存的，直接保存
+        if (StringUtils.isNotBlank(savedConnection.getId())) {
+            ConnectionManager.getInstance().addOrUpdate(savedConnection);
+            return;
+        }
+        String name = savedConnection.getName();
+        String host = savedConnection.getHost();
+        int port = savedConnection.getPort();
+        String user = savedConnection.getUser();
+        String password = savedConnection.getPassword();
         // 检查是否已经存在完全相同的连接，如果存在就不问了
         boolean exists = ConnectionManager.getInstance().getAll().stream()
                 .anyMatch(c -> c.getHost().equals(host) && c.getUser().equals(user) && c.getPort() == port);
 
-        if (exists) return;
+        if (exists) {
+            return;
+        }
 
         Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
         alert.setTitle("保存连接");
@@ -182,9 +181,6 @@ public class MainController {
                 String finalName = (name == null || name.isEmpty()) ? host : name;
                 SavedConnection conn = new SavedConnection(finalName, host, port, user, password);
                 ConnectionManager.getInstance().addOrUpdate(conn);
-
-                // 显示是否保存弹窗
-                loadConnectionManagerView();
             }
         });
     }
@@ -194,12 +190,19 @@ public class MainController {
         showConnectionDialog();
     }
 
-    private void showConnectionDialog() {
+    public void showConnectionDialog(SavedConnection savedConnection) {
         try {
             FXMLLoader loader = new FXMLLoader(getClass().getResource("connection-dialog.fxml"));
             BorderPane dialogContent = loader.load();
 
             ConnectionDialogController controller = loader.getController();
+
+            if (savedConnection == null) {
+                savedConnection = new SavedConnection();
+                controller.setSavedConnection(savedConnection);
+            } else {
+                controller.setConnectionInfo(savedConnection);
+            }
 
             Stage dialog = new Stage();
             dialog.initModality(Modality.APPLICATION_MODAL);
@@ -213,6 +216,10 @@ public class MainController {
         } catch (IOException e) {
             log.error("无法打开连接对话框: {}", e.getMessage());
         }
+    }
+
+    private void showConnectionDialog() {
+        this.showConnectionDialog(null);
     }
 
     private void showAlert(String title, String message) {

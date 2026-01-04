@@ -108,13 +108,13 @@ public class ConnectionManagerController {
             loadData(null); // 刷新界面
 
             // 调用主控制器打开 Tab
-            mainController.createTab(conn.getName(), conn.getHost(), conn.getPort(), conn.getUser(), conn.getPassword());
+            mainController.createTab(conn);
         }
     }
 
     private void handleEdit(SavedConnection conn) {
-        // TODO: 弹出编辑窗口 (复用新建连接窗口，回填数据)
-        // 逻辑略：和新建类似，只是填入初始值，保存时 ID 不变
+        // 弹出编辑窗口 (复用新建连接窗口，回填数据)
+        mainController.showConnectionDialog(conn);
     }
 
     private void handleDelete(SavedConnection conn) {

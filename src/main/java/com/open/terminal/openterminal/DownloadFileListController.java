@@ -1,5 +1,6 @@
 package com.open.terminal.openterminal;
 
+import com.open.terminal.openterminal.model.DownloadTask;
 import com.open.terminal.openterminal.util.FileUtil;
 import com.open.terminal.openterminal.util.ThreadUtil;
 import javafx.application.Platform;
@@ -96,8 +97,11 @@ public class DownloadFileListController {
             @Override
             protected void updateItem(String item, boolean empty) {
                 super.updateItem(item, empty);
-                if (empty) setGraphic(null);
-                else setGraphic(btn);
+                if (empty) {
+                    setGraphic(null);
+                } else {
+                    setGraphic(btn);
+                }
             }
         });
     }
@@ -118,7 +122,7 @@ public class DownloadFileListController {
                     return;
                 }
                 // 2. 清空 UI (只清空非进行中的)
-                downloadTable.getItems().removeIf(task -> !TaskStatus.IN_PROGRESS.equals(task.statusProperty().get()));
+                downloadTable.getItems().removeIf(task -> !DownloadTask.TaskStatus.IN_PROGRESS.equals(task.statusProperty().get()));
 
                 // 3. 后台线程执行物理删除
                 ThreadUtil.submitTask(() -> {
@@ -172,72 +176,5 @@ public class DownloadFileListController {
             }
         });
     }
-
-    public static class DownloadTask {
-        private final StringProperty fileName = new SimpleStringProperty();
-        private final StringProperty sizeStr = new SimpleStringProperty();
-        private final DoubleProperty progress = new SimpleDoubleProperty(0.0);
-        private final StringProperty status = new SimpleStringProperty(TaskStatus.PENDING);
-
-        // 原始数据
-        private final long totalSize;
-        private long currentSize = 0;
-
-        public DownloadTask(String fileName, long totalSize, boolean isCompleted) {
-            this.fileName.set(fileName);
-            this.totalSize = totalSize;
-            this.sizeStr.set(humanReadableByteCountBin(totalSize));
-
-            if (isCompleted) {
-                this.progress.set(1.0);
-                this.status.set("已完成");
-                this.currentSize = totalSize;
-            }
-        }
-
-        public void updateProgress(long increment) {
-            this.currentSize += increment;
-            double p = (double) currentSize / totalSize;
-            // 确保 UI 更新在主线程，且不超过 1.0
-            javafx.application.Platform.runLater(() -> {
-                this.progress.set(Math.min(p, 1.0));
-                if (p >= 1.0) {
-                    this.status.set(TaskStatus.COMPLETED);
-                } else {
-                    this.status.set(TaskStatus.IN_PROGRESS);
-                }
-            });
-        }
-
-        // Getters for Property (用于 FXML 绑定)
-        public StringProperty fileNameProperty() { return fileName; }
-        public StringProperty sizeStrProperty() { return sizeStr; }
-        public DoubleProperty progressProperty() { return progress; }
-        public StringProperty statusProperty() { return status; }
-
-        public String getFileName() { return fileName.get(); }
-
-        // 辅助方法：格式化大小
-        private static String humanReadableByteCountBin(long bytes) {
-            long absB = bytes == Long.MIN_VALUE ? Long.MAX_VALUE : Math.abs(bytes);
-            if (absB < 1024) return bytes + " B";
-            long value = absB;
-            java.text.CharacterIterator ci = new java.text.StringCharacterIterator("KMGTPE");
-            for (int i = 40; i >= 0 && absB > 0xfffccccccccccccL >> i; i -= 10) {
-                value >>= 10;
-                ci.next();
-            }
-            value *= Long.signum(bytes);
-            return String.format("%.1f %ciB", value / 1024.0, ci.current());
-        }
-    }
-
-    public static class TaskStatus {
-        public static final String PENDING = "等待中";
-        public static final String IN_PROGRESS = "下载中...";
-        public static final String COMPLETED = "已完成";
-        public static final String FAILED = "下载失败";
-    }
-
 
 }

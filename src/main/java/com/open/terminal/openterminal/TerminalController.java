@@ -2,12 +2,14 @@ package com.open.terminal.openterminal;
 
 import com.jcraft.jsch.*;
 import com.jediterm.terminal.ui.JediTermWidget;
-import com.open.terminal.openterminal.component.DefaultTerminalSettings;
-import com.open.terminal.openterminal.component.SshTtyConnector;
+import com.open.terminal.openterminal.component.terminal.DefaultTerminalSettings;
+import com.open.terminal.openterminal.component.terminal.SshTtyConnector;
+import com.open.terminal.openterminal.fun.FileProcessInterface;
+import com.open.terminal.openterminal.model.DownloadTask;
+import com.open.terminal.openterminal.model.RemoteFile;
 import com.open.terminal.openterminal.util.FileUtil;
 import com.open.terminal.openterminal.util.ThreadUtil;
 import javafx.application.Platform;
-import javafx.beans.property.SimpleStringProperty;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.embed.swing.SwingNode;
@@ -18,7 +20,6 @@ import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
-import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
 import javafx.scene.control.cell.PropertyValueFactory;
 import javafx.scene.layout.BorderPane;
@@ -30,20 +31,15 @@ import javafx.stage.Stage;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
-import java.awt.*;
-import java.awt.List;
-import java.awt.event.InputEvent;
-import java.awt.event.KeyEvent;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.text.CharacterIterator;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.stream.Collectors;
 
-public class TerminalController {
+public class TerminalController implements FileProcessInterface {
     private static final org.slf4j.Logger log =
             org.slf4j.LoggerFactory.getLogger(TerminalController.class);
 
@@ -68,29 +64,37 @@ public class TerminalController {
     @FXML
     private Label currentPathLabel;
     @FXML
-    private TableView<RemoteFile> fileTableView; // 泛型指定为 RemoteFile
+    private TableView<RemoteFile> fileTableView;
 
     // SSH 相关对象
     private Session session;
-    private ChannelShell channel; // 类型明确为 ChannelShell
+    private ChannelShell channel;
     private ChannelSftp sftpChannel;
-    private JediTermWidget terminalWidget; // JediTerm 的核心组件
+    private JediTermWidget terminalWidget;
 
     // 当前所在远程目录
     private String currentPath = ".";
 
     // 全局下载任务列表
-    private final ObservableList<DownloadFileListController.DownloadTask> downloadList = FXCollections.observableArrayList();
+    private final ObservableList<DownloadTask> downloadList = FXCollections.observableArrayList();
 
     // 监控 UI 控件
-    @FXML private Label cpuLabel;
-    @FXML private ProgressBar cpuProgress;
-    @FXML private Label ramLabel;
-    @FXML private ProgressBar ramProgress;
-    @FXML private Label diskLabel;
-    @FXML private ProgressBar diskProgress;
-    @FXML private Label netDownLabel;
-    @FXML private Label netUpLabel;
+    @FXML
+    private Label cpuLabel;
+    @FXML
+    private ProgressBar cpuProgress;
+    @FXML
+    private Label ramLabel;
+    @FXML
+    private ProgressBar ramProgress;
+    @FXML
+    private Label diskLabel;
+    @FXML
+    private ProgressBar diskProgress;
+    @FXML
+    private Label netDownLabel;
+    @FXML
+    private Label netUpLabel;
 
     // 定时任务标志
     private volatile boolean isMonitoring = false;
@@ -100,7 +104,7 @@ public class TerminalController {
     private long prevTotalTime = 0;
     private long prevRxBytes = 0;
     private long prevTxBytes = 0;
-    private long lastCheckTime = 0; // 上次检查的时间戳
+    private long lastCheckTime = 0;
 
 
     private SshTtyConnector ttyConnector;
@@ -135,7 +139,8 @@ public class TerminalController {
         });
     }
 
-    private void openRemoteFileWithChooser(RemoteFile file) {
+    @Override
+    public void openRemoteFileWithChooser(RemoteFile file) {
         if (sftpChannel == null || !sftpChannel.isConnected()) {
             return;
         }
@@ -179,12 +184,13 @@ public class TerminalController {
         });
     }
 
+    @Override
     // 带进度的下载方法
-    private void downloadRemoteFileWithProgress(String remotePath, Path localPath, long totalSize) throws Exception {
+    public void downloadRemoteFileWithProgress(String remotePath, Path localPath, long totalSize) throws Exception {
         String fileName = localPath.getFileName().toString();
 
         // 1. 创建任务并加入列表 (必须在 UI 线程添加，或者用 Platform.runLater)
-        DownloadFileListController.DownloadTask task = new DownloadFileListController.DownloadTask(fileName, totalSize, false);
+        DownloadTask task = new DownloadTask(fileName, totalSize, false);
         Platform.runLater(() -> downloadList.addFirst(task)); // 加到最前面
 
         // 2. 创建 JSch 进度监听器
@@ -215,6 +221,7 @@ public class TerminalController {
     }
 
     @FXML
+    @Override
     public void handleFileList() {
         try {
             Path localDownloadDir = FileUtil.localDownloadDir;
@@ -232,7 +239,7 @@ public class TerminalController {
 
                     if (!alreadyInList) {
                         // 添加历史文件，状态设为已完成
-                        downloadList.add(new DownloadFileListController.DownloadTask(file.getName(), file.length(), true));
+                        downloadList.add(new DownloadTask(file.getName(), file.length(), true));
                     }
                 }
             }
@@ -247,7 +254,7 @@ public class TerminalController {
             controller.setDownloadTasks(downloadList);
 
             Stage dialog = new Stage();
-            dialog.initModality(Modality.APPLICATION_MODAL); // 模态窗口
+            dialog.initModality(Modality.APPLICATION_MODAL);
             dialog.setTitle("文件下载列表");
             dialog.setScene(new Scene(dialogContent));
             controller.setDialogStage(dialog);
@@ -264,6 +271,7 @@ public class TerminalController {
      * 上传文件逻辑,包括单个文件和目录递归上传，上传到远程机器的当前目录
      */
     @FXML
+    @Override
     public void handleUploadFile() {
         if (sftpChannel == null || !sftpChannel.isConnected()) {
             printErrorToTerminal("错误：SFTP 未连接，无法上传。\n");
@@ -322,18 +330,20 @@ public class TerminalController {
                         Path rootPath = finalFile.toPath();
                         String remoteBaseDir = finalFile.getName();
 
-                        safeSftpMkdir(remoteBaseDir); // 确保远程根目录存在
+                        FileUtil.safeSftpMkdir(sftpChannel, remoteBaseDir); // 确保远程根目录存在
 
                         java.nio.file.Files.walkFileTree(rootPath, new java.nio.file.SimpleFileVisitor<Path>() {
                             @NotNull
                             @Override
                             public FileVisitResult preVisitDirectory(@NotNull Path dir, @NotNull BasicFileAttributes attrs) throws IOException {
                                 Path relative = rootPath.relativize(dir);
-                                if (relative.toString().isEmpty()) return java.nio.file.FileVisitResult.CONTINUE;
+                                if (relative.toString().isEmpty()) {
+                                    return FileVisitResult.CONTINUE;
+                                }
 
                                 String remotePath = remoteBaseDir + "/" + relative.toString().replace("\\", "/");
                                 try {
-                                    safeSftpMkdir(remotePath);
+                                    FileUtil.safeSftpMkdir(sftpChannel, remotePath);
                                 } catch (SftpException e) {
                                     throw new IOException("无法创建远程目录: " + remotePath, e);
                                 }
@@ -366,30 +376,6 @@ public class TerminalController {
                     printErrorToTerminal("上传失败: " + e.getMessage() + "\n");
                 }
             });
-        }
-    }
-
-    /**
-     * 安全创建远程目录，如果目录已存在则忽略错误
-     */
-    private void safeSftpMkdir(String dirPath) throws SftpException {
-        try {
-            sftpChannel.mkdir(dirPath);
-        } catch (SftpException e) {
-            // JSch 的 SSH_FX_FAILURE (id=4) 通常表示目录已存在或其他一般性错误
-            // 为了稳健，如果创建失败，我们可以尝试 cd 进去，如果能 cd 进去说明目录存在，否则才是真的创建失败
-            if (e.id != ChannelSftp.SSH_FX_FAILURE) {
-                throw e; // 抛出其他严重错误
-            }
-
-            // 二次确认：尝试获取该路径属性，用来判断是否真的存在
-            try {
-                sftpChannel.stat(dirPath);
-                // 如果没抛异常，说明目录确实存在，忽略之前的 mkdir 错误
-            } catch (SftpException checkEx) {
-                // 如果 stat 也失败了，说明 mkdir 是因为其他原因失败的，必须抛出原异常
-                throw e;
-            }
         }
     }
 
@@ -550,9 +536,11 @@ public class TerminalController {
                     SftpATTRS attrs = entry.getAttrs();
 
                     // 排除当前目录 "."
-                    if (filename.equals(".")) continue;
+                    if (filename.equals(".")) {
+                        continue;
+                    }
 
-                    String sizeStr = humanReadableByteCountBin(attrs.getSize());
+                    String sizeStr = FileUtil.humanReadableByteCountBin(attrs.getSize());
                     String dateStr = sdf.format(new Date(attrs.getMTime() * 1000L));
                     boolean isDir = attrs.isDir();
 
@@ -571,8 +559,12 @@ public class TerminalController {
 
                 // 排序：目录在前，文件在后
                 fileList.sort((f1, f2) -> {
-                    if (f1.isDirectory() && !f2.isDirectory()) return -1;
-                    if (!f1.isDirectory() && f2.isDirectory()) return 1;
+                    if (f1.isDirectory() && !f2.isDirectory()) {
+                        return -1;
+                    }
+                    if (!f1.isDirectory() && f2.isDirectory()) {
+                        return 1;
+                    }
                     return f1.getFileName().compareToIgnoreCase(f2.getFileName());
                 });
 
@@ -634,10 +626,13 @@ public class TerminalController {
         try {
             log.info("监控命令输出:\n{}", rawOutput);
             String[] sections = rawOutput.split("#####");
-            if (sections.length < 4) return;
+            if (sections.length < 4) {
+                return;
+            }
 
             // --- 1. 解析内存 ---
-            String memStr = sections[0].trim(); // 格式: "totalBytes usedBytes"
+            // 格式: "totalBytes usedBytes"
+            String memStr = sections[0].trim();
             String[] memParts = memStr.split("\\s+");
             if (memParts.length >= 2) {
                 log.info("内存数据: total={} used={}", memParts[0], memParts[1]);
@@ -707,8 +702,8 @@ public class TerminalController {
                         long rxSpeed = (currentRx - prevRxBytes) / timeDelta;
                         long txSpeed = (currentTx - prevTxBytes) / timeDelta;
 
-                        String rxStr = humanReadableByteCountBin(rxSpeed) + "/s";
-                        String txStr = humanReadableByteCountBin(txSpeed) + "/s";
+                        String rxStr = FileUtil.humanReadableByteCountBin(rxSpeed) + "/s";
+                        String txStr = FileUtil.humanReadableByteCountBin(txSpeed) + "/s";
 
                         Platform.runLater(() -> {
                             netDownLabel.setText(rxStr);
@@ -762,7 +757,9 @@ public class TerminalController {
      * 向终端打印系统消息（红色高亮）
      */
     private void printErrorToTerminal(String message) {
-        if (terminalWidget == null) return;
+        if (terminalWidget == null) {
+            return;
+        }
 
         // JediTerm 是 Swing 组件，必须在 Swing 线程操作
         SwingUtilities.invokeLater(() -> {
@@ -812,7 +809,8 @@ public class TerminalController {
                     try {
                         InputStream is = sftpChannel.get(sftpChannel.getHome() + "/.zsh_history");
                         historyLines.addAll(readHistoryStream(is, true)); // true 表示需要解析 zsh 格式
-                    } catch (Exception ignored) {}
+                    } catch (Exception ignored) {
+                    }
                 }
 
                 // 3. 去重并反转 (最近的在最上面)
@@ -840,7 +838,9 @@ public class TerminalController {
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
             String line;
             while ((line = reader.readLine()) != null) {
-                if (line.trim().isEmpty()) continue;
+                if (line.trim().isEmpty()) {
+                    continue;
+                }
 
                 String cmd = line;
                 // Zsh 历史格式通常是: ": 1678888888:0;command"
@@ -916,7 +916,9 @@ public class TerminalController {
 
                 // 让终端重获焦点
                 SwingUtilities.invokeLater(() -> {
-                    if(terminalWidget != null) terminalWidget.getTerminalPanel().requestFocusInWindow();
+                    if (terminalWidget != null) {
+                        terminalWidget.getTerminalPanel().requestFocusInWindow();
+                    }
                 });
             } catch (IOException e) {
                 log.error("发送历史命令失败: {}", e.getMessage());
@@ -947,68 +949,6 @@ public class TerminalController {
         }
         if (terminalWidget != null) {
             terminalWidget.close();
-        }
-    }
-
-    // 辅助方法：格式化文件大小，转换为二进制文件大小：KiB，MiB，GiB 等
-    private static String humanReadableByteCountBin(long bytes) {
-        long absB = bytes == Long.MIN_VALUE ? Long.MAX_VALUE : Math.abs(bytes);
-        if (absB < 1024) {
-            return bytes + " B";
-        }
-        long value = absB;
-        CharacterIterator ci = new java.text.StringCharacterIterator("KMGTPE");
-        for (int i = 40; i >= 0 && absB > 0xfffccccccccccccL >> i; i -= 10) {
-            // 位运算，二进制数右移位10位，相当于value/(2^10 = 1024)
-            value >>= 10;
-            ci.next();
-        }
-        // 恢复符号（正 / 负），bytes 可能是负数（比如差值、剩余空间）
-        value *= Long.signum(bytes);
-        return String.format("%.1f %ciB", value / 1024.0, ci.current());
-    }
-
-    // ================== 内部数据模型类 ==================
-    public static class RemoteFile {
-        private final SimpleStringProperty fileName;
-        private final SimpleStringProperty size;
-        private final SimpleStringProperty permissions;
-        private final SimpleStringProperty modificationTime;
-
-        private final String rawName; // 原始文件名(不含装饰)
-        private final boolean isDirectory;
-
-        public RemoteFile(String fileName, String size, String permissions, String modificationTime, String rawName, boolean isDirectory) {
-            this.fileName = new SimpleStringProperty(fileName);
-            this.size = new SimpleStringProperty(size);
-            this.permissions = new SimpleStringProperty(permissions);
-            this.modificationTime = new SimpleStringProperty(modificationTime);
-            this.rawName = rawName;
-            this.isDirectory = isDirectory;
-        }
-
-        public String getFileName() {
-            return fileName.get();
-        }
-
-        public String getSize() {
-            return size.get();
-        }
-
-        public String getPermissions() {
-            return permissions.get();
-        }
-
-        public String getModificationTime() {
-            return modificationTime.get();
-        }
-
-        public String getRawName() {
-            return rawName;
-        }
-
-        public boolean isDirectory() {
-            return isDirectory;
         }
     }
 }
